@@ -19,7 +19,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -37,6 +37,7 @@ class SymbolState:
     prices: Deque[float] = field(default_factory=lambda: deque(maxlen=80))
     volumes: Deque[float] = field(default_factory=lambda: deque(maxlen=80))
     last_update: float = 0.0
+    previous_close: float = 0.0
     last_classification: str = "stale"
     last_discovery: DiscoveryNow = field(default_factory=lambda: DiscoveryNow(False, False, False))
 
@@ -47,7 +48,14 @@ class RealtimeEvaluationEngine:
         self._states: Dict[str, SymbolState] = {}
         self._lock = threading.Lock()
 
-    def ingest(self, symbol: str, price: float, volume: float, timestamp: Optional[float] = None) -> None:
+    def ingest(
+        self,
+        symbol: str,
+        price: float,
+        volume: float,
+        timestamp: Optional[float] = None,
+        previous_close: Optional[float] = None,
+    ) -> None:
         ts = timestamp or time.time()
         if price <= 0:
             return
@@ -58,6 +66,8 @@ class RealtimeEvaluationEngine:
             state.prices.append(float(price))
             state.volumes.append(float(volume))
             state.last_update = ts
+            if previous_close is not None and previous_close > 0:
+                state.previous_close = float(previous_close)
 
     def symbols(self) -> List[str]:
         with self._lock:
@@ -72,6 +82,7 @@ class RealtimeEvaluationEngine:
             copy.prices.extend(state.prices)
             copy.volumes.extend(state.volumes)
             copy.last_update = state.last_update
+            copy.previous_close = state.previous_close
             copy.last_classification = state.last_classification
             copy.last_discovery = state.last_discovery
             return copy
@@ -123,9 +134,15 @@ class RealtimeEvaluationEngine:
             vcp = len(prices) >= 30 and range_prev > 0 and range_now < (range_prev * 0.85) and last >= max(prices[-5:]) * 0.995
 
             day_open = prices[0]
-            gap = self._safe_pct(day_open, prev)
+            reference_close = state.previous_close if state.previous_close > 0 else 0.0
+            gap = self._safe_pct(day_open, reference_close)
             intraday_move = self._safe_pct(last, day_open)
-            vol_spike = (sum(volumes[-5:]) / max(1.0, sum(volumes[-20:]) / 4.0)) if len(volumes) >= 20 else 1.0
+            if len(volumes) >= 20:
+                recent_vol_avg = sum(volumes[-5:]) / 5.0
+                baseline_vol_avg = sum(volumes[-20:]) / 20.0
+                vol_spike = recent_vol_avg / max(1.0, baseline_vol_avg)
+            else:
+                vol_spike = 1.0
             gap_go = gap >= 0.02 and intraday_move > 0 and vol_spike > 1.1
 
             ema20 = self._ema(prices[-20:], 20)
@@ -158,15 +175,15 @@ class StockScreenerV4:
         self.finnhub_token = finnhub_token.strip()
         self.engine = RealtimeEvaluationEngine()
 
-        self.tick_queue: queue.Queue[Tuple[str, float, float, float]] = queue.Queue(maxsize=5000)
+        self.tick_queue: queue.Queue[Tuple[str, float, float, float, Optional[float]]] = queue.Queue(maxsize=5000)
         self.fast_eval_queue: queue.Queue[str] = queue.Queue(maxsize=1000)
         self.full_eval_queue: queue.Queue[str] = queue.Queue(maxsize=1000)
-        self.pending_fast: set[str] = set()
-        self.pending_full: set[str] = set()
+        self.pending_fast: Set[str] = set()
+        self.pending_full: Set[str] = set()
 
-        self.qualified: set[str] = set()
-        self.near: set[str] = set()
-        self.stale: set[str] = set(symbols)
+        self.qualified: Set[str] = set()
+        self.near: Set[str] = set()
+        self.stale: Set[str] = set(symbols)
 
         self.last_ws_message_at = 0.0
         self._ws_socket = None
@@ -178,7 +195,7 @@ class StockScreenerV4:
         self.status_label: Optional[Any] = None
         self.tree: Dict[str, Any] = {}
 
-    def _safe_put_symbol(self, q: queue.Queue[str], pending: set[str], symbol: str) -> None:
+    def _safe_put_symbol(self, q: queue.Queue[str], pending: Set[str], symbol: str) -> None:
         if symbol in pending:
             return
         try:
@@ -193,14 +210,21 @@ class StockScreenerV4:
             except queue.Empty:
                 return
 
-    def _safe_put_tick(self, symbol: str, price: float, volume: float, timestamp: Optional[float] = None) -> None:
+    def _safe_put_tick(
+        self,
+        symbol: str,
+        price: float,
+        volume: float,
+        timestamp: Optional[float] = None,
+        previous_close: Optional[float] = None,
+    ) -> None:
         ts = timestamp or time.time()
         try:
-            self.tick_queue.put_nowait((symbol, price, volume, ts))
+            self.tick_queue.put_nowait((symbol, price, volume, ts, previous_close))
         except queue.Full:
             try:
                 self.tick_queue.get_nowait()
-                self.tick_queue.put_nowait((symbol, price, volume, ts))
+                self.tick_queue.put_nowait((symbol, price, volume, ts, previous_close))
             except queue.Empty:
                 pass
 
@@ -230,8 +254,8 @@ class StockScreenerV4:
     def _tick_ingestor_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                symbol, price, volume, ts = self.tick_queue.get(timeout=0.5)
-                self.engine.ingest(symbol, price, volume, ts)
+                symbol, price, volume, ts, previous_close = self.tick_queue.get(timeout=0.5)
+                self.engine.ingest(symbol, price, volume, ts, previous_close=previous_close)
                 self._safe_put_symbol(self.fast_eval_queue, self.pending_fast, symbol)
             except queue.Empty:
                 continue
@@ -272,7 +296,7 @@ class StockScreenerV4:
             self._set_bucket(symbol, classification)
             time.sleep(0.05)
 
-    def _rest_quote(self, symbol: str) -> Optional[Tuple[float, float]]:
+    def _rest_quote(self, symbol: str) -> Optional[Tuple[float, float, float]]:
         if not self.finnhub_token:
             return None
         url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={self.finnhub_token}"
@@ -286,7 +310,8 @@ class StockScreenerV4:
         volume = float(payload.get("v", 0.0) or 0.0)
         if price <= 0:
             return None
-        return price, volume
+        previous_close = float(payload.get("pc", 0.0) or 0.0)
+        return price, volume, previous_close
 
     def manual_refresh(self) -> None:
         def run() -> None:
@@ -296,8 +321,8 @@ class StockScreenerV4:
                 quote = self._rest_quote(symbol)
                 if not quote:
                     continue
-                price, volume = quote
-                self._safe_put_tick(symbol, price, volume)
+                price, volume, previous_close = quote
+                self._safe_put_tick(symbol, price, volume, previous_close=previous_close)
                 self._safe_put_symbol(self.full_eval_queue, self.pending_full, symbol)
                 refreshed += 1
             self._set_status(f"Manual Refresh complete ({refreshed}/{len(self.symbols)})")
@@ -403,7 +428,7 @@ class StockScreenerV4:
             else:
                 price = "-"
                 updated = -1
-            tree.insert("", END, values=(symbol, price, updated))
+            tree.insert("", "end", values=(symbol, price, updated))
 
     def _render_once(self) -> None:
         with self._lock:
@@ -448,7 +473,7 @@ class StockScreenerV4:
         self._threads.clear()
 
     def _build_ui(self) -> Any:
-        from tkinter import BOTH, LEFT, RIGHT, Button, END, Frame, Label, Tk, ttk
+        from tkinter import BOTH, LEFT, RIGHT, Button, Frame, Label, Tk, ttk
 
         root = Tk()
         root.title("Stock Screener V4")

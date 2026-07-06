@@ -2,7 +2,7 @@
 
 Stock Screener V4 (stable rollback) is implemented in:
 
-- `/home/runner/work/tv/tv/stock_screener_v4.py`
+- `stock_screener_v4.py`
 
 ## Features
 
@@ -20,7 +20,7 @@ Stock Screener V4 (stable rollback) is implemented in:
 ## Run
 
 ```bash
-FINNHUB_TOKEN=your_token python /home/runner/work/tv/tv/stock_screener_v4.py
+FINNHUB_TOKEN=your_token python stock_screener_v4.py
 ```
 
 `websocket-client` is required for realtime websocket streaming.
