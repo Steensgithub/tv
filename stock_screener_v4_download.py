@@ -72,6 +72,12 @@ GAP_GO_CANDIDATE_THRESHOLD = 50.0
 VCP_STRUCTURE_THRESHOLD = 45.0
 RS_PULLBACK_THRESHOLD = 45.0
 
+UI_QUEUE_DRAIN_INTERVAL_MS = 250
+INITIAL_FETCH_RETRY_BACKOFF_SECONDS = 0.7
+INITIAL_WS_RETRY_BACKOFF_SECONDS = 1.0
+WS_HEARTBEAT_INTERVAL_SECONDS = 2.0
+EPSILON = 1e-6
+
 
 DEFAULT_UNIVERSE = {
     "US": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"],
@@ -135,7 +141,7 @@ class StockScreenerV4App:
         self._seed_initial_state()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.root.after(250, self._drain_ui_queue)
+        self.root.after(UI_QUEUE_DRAIN_INTERVAL_MS, self._drain_ui_queue)
         self._log_runtime_diagnostics()
         self.set_status("Ready. Click Refresh to fetch data.")
 
@@ -237,7 +243,7 @@ class StockScreenerV4App:
         if last_reason:
             self.refresh_market_ui()
             self.set_status(f"UI refreshed: {last_reason}")
-        self.root.after(300, self._drain_ui_queue)
+        self.root.after(UI_QUEUE_DRAIN_INTERVAL_MS, self._drain_ui_queue)
 
     def refresh_clicked(self) -> None:
         threading.Thread(target=self._refresh_worker, daemon=True, name="refresh-worker").start()
@@ -289,7 +295,7 @@ class StockScreenerV4App:
         return vals
 
     def fetch_with_retry(self, symbol: str, max_attempts: int = 4) -> dict[str, float | int]:
-        backoff = 0.7
+        backoff = INITIAL_FETCH_RETRY_BACKOFF_SECONDS
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -385,9 +391,9 @@ class StockScreenerV4App:
     def score_vcp(self, st: SymbolState) -> float:
         if st.high <= 0 or st.low <= 0 or st.last <= 0:
             return 0.0
-        range_ratio = max(0.0, min(1.0, (st.high - st.low) / max(st.last, 1e-6)))
+        range_ratio = max(0.0, min(1.0, (st.high - st.low) / max(st.last, EPSILON)))
         contraction = 1.0 - min(range_ratio * 5, 1.0)
-        close_position = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, 1e-6)))
+        close_position = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, EPSILON)))
         volume_quality = min(math.log10(max(st.volume, 1)) / VOLUME_LOG_SCALE, 1.0)
         return round(
             VCP_CONTRACTION_WEIGHT * contraction
@@ -402,7 +408,7 @@ class StockScreenerV4App:
         gap = (st.last - st.open) / st.open
         gap_score = max(0.0, min(1.0, gap / GAP_THRESHOLD)) * GAP_GO_GAP_WEIGHT
         breakout = (
-            max(0.0, min(1.0, (st.last - ((st.high + st.low) / 2)) / max(st.high, 1e-6))) * GAP_GO_BREAKOUT_WEIGHT
+            max(0.0, min(1.0, (st.last - ((st.high + st.low) / 2)) / max(st.high, EPSILON))) * GAP_GO_BREAKOUT_WEIGHT
         )
         vol_boost = min(math.log10(max(st.volume, 1)) / VOLUME_LOG_SCALE, 1.0) * GAP_GO_VOLUME_WEIGHT
         return round(gap_score + breakout + vol_boost, 1)
@@ -411,9 +417,9 @@ class StockScreenerV4App:
         if st.high <= st.low or st.last <= 0:
             return 0.0
         mid = (st.high + st.low) / 2
-        pullback_depth = max(0.0, min(1.0, (mid - st.low) / max(st.high - st.low, 1e-6)))
-        hold_above_mid = 1.0 if st.last >= mid else max(0.0, st.last / max(mid, 1e-6))
-        recovery = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, 1e-6)))
+        pullback_depth = max(0.0, min(1.0, (mid - st.low) / max(st.high - st.low, EPSILON)))
+        hold_above_mid = 1.0 if st.last >= mid else max(0.0, st.last / max(mid, EPSILON))
+        recovery = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, EPSILON)))
         return round(
             RS_PULLBACK_DEPTH_WEIGHT * pullback_depth
             + RS_PULLBACK_HOLD_WEIGHT * hold_above_mid
@@ -515,7 +521,7 @@ class StockScreenerV4App:
         # Echo endpoint is used as a lightweight websocket transport.
         # Incoming messages trigger small simulated ticks for tracked symbols.
         url = "wss://echo.websocket.events"
-        backoff = 1.0
+        backoff = INITIAL_WS_RETRY_BACKOFF_SECONDS
 
         while not self.ws_stop_event.is_set() and not self.stop_event.is_set():
             self.ws_reconnect_count += 1
@@ -534,7 +540,7 @@ class StockScreenerV4App:
                         await ws.send(json.dumps(payload))
                         msg = await asyncio.wait_for(ws.recv(), timeout=20)
                         self._handle_ws_message(msg)
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(WS_HEARTBEAT_INTERVAL_SECONDS)
             except Exception as exc:
                 log.warning("WS connection error: %s", exc)
                 self.set_status(f"Realtime reconnecting in {backoff:.1f}s")
