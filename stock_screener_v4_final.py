@@ -23,14 +23,14 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 try:
     import websockets  # type: ignore
-except Exception as import_error:  # pragma: no cover
+except ImportError as import_error:  # pragma: no cover
     websockets = None
     WEBSOCKETS_IMPORT_ERROR = import_error
 else:
@@ -46,6 +46,7 @@ log = logging.getLogger("stock_screener_v4")
 VALID_SYMBOL = re.compile(r"^[A-Z0-9.-]{1,16}$")
 
 UI_QUEUE_MAX = 5000
+UI_QUEUE_DRAIN_LIMIT = 500
 UI_ERROR_TRUNCATE = 36
 
 SCORE_PCT_WEIGHT = 0.7
@@ -54,11 +55,18 @@ SCORE_VOL_NORMALIZER = 1_000_000
 SCORE_VOL_CAP = 5
 
 STOOQ_FIELDS = "sd2t2ohlcv"  # s=symbol d2=date t2=time o/h/l/c/v quote fields
+STOOQ_BASE_URL = "https://stooq.com/q/l/"
 MAX_FETCH_BACKOFF_SECONDS = 16.0
 
 WS_PING_INTERVAL = 20
 WS_PING_TIMEOUT = 12
 WS_CLOSE_TIMEOUT = 5
+WS_RECV_TIMEOUT = 30
+WS_MAX_BACKOFF_SECONDS = 30.0
+WS_NO_STREAMS_RETRY_DELAY = 5.0
+BINANCE_WS_BASE_URL = "wss://stream.binance.com:9443/stream?streams="
+
+SHUTDOWN_THREAD_TIMEOUT = 2.0
 
 SEED_UNIVERSE = {
     "US": ["AAPL.US", "MSFT.US", "NVDA.US", "AMZN.US", "TSLA.US", "META.US"],
@@ -81,11 +89,19 @@ def safe_float(v: object) -> Optional[float]:
     return val
 
 
-def validate_symbol(symbol: str) -> Optional[str]:
+def validate_symbol(symbol: object) -> Optional[str]:
+    if not isinstance(symbol, str):
+        return None
     s = symbol.strip().upper()
     if VALID_SYMBOL.match(s):
         return s
     return None
+
+
+def with_fallback(value: object, fallback: Union[str, float, int]) -> Union[str, float, int]:
+    if value in ("N/D", "", None):
+        return fallback
+    return value  # type: ignore[return-value]
 
 
 @dataclass
@@ -183,7 +199,7 @@ class StockScreenerV4:
         self._schedule_ui_tasks()
 
     def _log_runtime_diagnostics(self) -> None:
-        log.info("Python interpreter startup diagnostics active")
+        log.info("Runtime diagnostics logged")
         log.info("Realtime websockets available: %s", websockets is not None)
         if websockets is None:
             log.error("websockets import failed: %r", WEBSOCKETS_IMPORT_ERROR)
@@ -270,7 +286,7 @@ class StockScreenerV4:
 
     def _process_ui_queue(self) -> None:
         drained = 0
-        while drained < 500:
+        while drained < UI_QUEUE_DRAIN_LIMIT:
             try:
                 self.ui_queue.get_nowait()
             except queue.Empty:
@@ -285,6 +301,12 @@ class StockScreenerV4:
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
         log.info("Status update: %s", text)
+
+    def enqueue_ui_refresh(self, symbol: str) -> None:
+        try:
+            self.ui_queue.put_nowait(symbol)
+        except queue.Full:
+            log.warning("UI queue full; dropping refresh marker for %s", symbol)
 
     def get_requested_symbols(self) -> List[str]:
         out: List[str] = []
@@ -321,7 +343,8 @@ class StockScreenerV4:
             for s in symbols:
                 if not q or q in s:
                     discovered.append(s)
-            log.info("Discovery scan region=%s query='%s' hits=%d", region, q, len([x for x in symbols if not q or q in x]))
+            hits = sum(1 for x in symbols if not q or q in x)
+            log.info("Discovery scan region=%s query='%s' hits=%d", region, q, hits)
         discovered = sorted(set(discovered))
         if self.universe_list is not None:
             self.universe_list.delete(0, tk.END)
@@ -332,7 +355,8 @@ class StockScreenerV4:
     def add_selected_universe(self) -> None:
         if self.universe_list is None:
             return
-        selected = [self.universe_list.get(i) for i in self.universe_list.curselection()]
+        selected_indices = self.universe_list.curselection()
+        selected = [self.universe_list.get(i) for i in selected_indices]
         if not selected:
             messagebox.showinfo("Universe panel", "No symbols selected.")
             return
@@ -342,10 +366,13 @@ class StockScreenerV4:
         self.apply_symbol_entry()
 
     def _fetch_quote_stooq(self, symbol: str) -> Dict[str, object]:
-        quote_symbol = symbol.lower()
+        valid_symbol = validate_symbol(symbol)
+        if not valid_symbol:
+            raise ValueError(f"Invalid symbol for fetch: {symbol}")
+        quote_symbol = valid_symbol.lower()
         if "." not in quote_symbol and not quote_symbol.endswith("usdt"):
             quote_symbol = f"{quote_symbol}.us"
-        url = f"https://stooq.com/q/l/?s={urllib.parse.quote(quote_symbol)}&f={STOOQ_FIELDS}&h&e=csv"
+        url = f"{STOOQ_BASE_URL}?s={urllib.parse.quote(quote_symbol)}&f={STOOQ_FIELDS}&h&e=csv"
         log.info("Fetch quote for %s from %s", symbol, url)
         req = urllib.request.Request(url=url, headers={"User-Agent": "stock-screener-v4"})
         with urllib.request.urlopen(req, timeout=12) as resp:
@@ -362,10 +389,10 @@ class StockScreenerV4:
             raise ValueError(f"{symbol}: quote missing close value")
         return {
             "price": close,
-            "open_price": open_price if open_price not in ("N/D", "") else close,
-            "high": high if high not in ("N/D", "") else close,
-            "low": low if low not in ("N/D", "") else close,
-            "volume": volume if volume not in ("N/D", "") else 0,
+            "open_price": with_fallback(open_price, close),
+            "high": with_fallback(high, close),
+            "low": with_fallback(low, close),
+            "volume": with_fallback(volume, 0),
         }
 
     def _fetch_with_retry(self, symbol: str, retries: int = 4, base_delay: float = 1.0) -> Dict[str, object]:
@@ -404,14 +431,14 @@ class StockScreenerV4:
                     with self.lock:
                         st.update(data, source="refresh")
                     ok += 1
-                    self.ui_queue.put_nowait(symbol)
+                    self.enqueue_ui_refresh(symbol)
                 except Exception as exc:
                     failed += 1
                     log.exception("Refresh failed for %s: %s", symbol, exc)
                     st = self.get_or_create_state_locked(symbol)
                     with self.lock:
                         st.mark_error(str(exc))
-                    self.ui_queue.put_nowait(symbol)
+                    self.enqueue_ui_refresh(symbol)
             self.set_status(f"Refresh complete: ok={ok} failed={failed}")
         finally:
             self.refresh_in_flight.clear()
@@ -445,20 +472,21 @@ class StockScreenerV4:
                 tree.insert("", tk.END, values=row)
         self.root.update_idletasks()
 
-    def _stream_symbols(self) -> List[str]:
+    def _get_crypto_stream_symbols(self) -> List[str]:
         return [s.lower() for s in self.get_requested_symbols() if s.endswith("USDT")]
 
     async def _ws_loop(self) -> None:
-        assert websockets is not None
+        if websockets is None:
+            raise RuntimeError("websockets module required for realtime updates")
         backoff = 1.0
         while not self.stop_event.is_set():
-            streams = self._stream_symbols()
+            streams = self._get_crypto_stream_symbols()
             if not streams:
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(WS_NO_STREAMS_RETRY_DELAY)
                 continue
 
             stream_path = "/".join(f"{sym}@ticker" for sym in streams)
-            url = f"wss://stream.binance.com:9443/stream?streams={stream_path}"
+            url = f"{BINANCE_WS_BASE_URL}{stream_path}"
             self.ws_reconnect_count += 1
             attempt = self.ws_reconnect_count
             log.info("Websocket connect attempt #%d url=%s", attempt, url)
@@ -477,19 +505,27 @@ class StockScreenerV4:
                         if self.ws_force_reconnect.is_set():
                             self.ws_force_reconnect.clear()
                             raise RuntimeError("Forced reconnect requested")
-                        raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                        raw = await asyncio.wait_for(ws.recv(), timeout=WS_RECV_TIMEOUT)
                         self.ws_last_message_ts = time.time()
                         self._handle_ws_message(raw)
+            except asyncio.TimeoutError:
+                self.set_status("Realtime connection timeout, reconnecting...")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, WS_MAX_BACKOFF_SECONDS)
             except Exception as exc:
                 self.set_status(f"Realtime reconnecting in {backoff:.1f}s")
                 log.warning("Websocket error: %s", exc)
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
+                backoff = min(backoff * 2, WS_MAX_BACKOFF_SECONDS)
 
-    def _handle_ws_message(self, raw: object) -> None:
-        payload = json.loads(raw)
+    def _handle_ws_message(self, raw: Union[str, bytes]) -> None:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            log.warning("Ignoring malformed websocket payload: %s", exc)
+            return
         data = payload.get("data", payload)
-        symbol = validate_symbol(str(data.get("s", "")))
+        symbol = validate_symbol(data.get("s", ""))
         if not symbol:
             return
         quote = {
@@ -503,7 +539,7 @@ class StockScreenerV4:
             st = self.get_or_create_state_locked(symbol)
             with self.lock:
                 st.update(quote, source="websocket")
-            self.ui_queue.put_nowait(symbol)
+            self.enqueue_ui_refresh(symbol)
             log.info("Realtime update received for %s", symbol)
         except Exception as exc:
             log.warning("Invalid realtime payload for %s: %s", symbol, exc)
@@ -513,7 +549,8 @@ class StockScreenerV4:
             self.set_status("Realtime unavailable: websockets import failed")
             messagebox.showwarning(
                 "Realtime unavailable",
-                f"websockets package unavailable.\nInstall with: pip install websockets\n\nError: {WEBSOCKETS_IMPORT_ERROR!r}",
+                "websockets package unavailable.\nInstall with: pip install websockets\n\n"
+                f"Error details: {WEBSOCKETS_IMPORT_ERROR}",
             )
             return False
         if self.ws_thread and self.ws_thread.is_alive():
@@ -544,7 +581,7 @@ class StockScreenerV4:
         self.set_status("Shutting down...")
         try:
             if self.ws_thread and self.ws_thread.is_alive():
-                self.ws_thread.join(timeout=2.0)
+                self.ws_thread.join(timeout=SHUTDOWN_THREAD_TIMEOUT)
         finally:
             self.root.destroy()
 
