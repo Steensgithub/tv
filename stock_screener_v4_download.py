@@ -77,6 +77,13 @@ INITIAL_FETCH_RETRY_BACKOFF_SECONDS = 0.7
 INITIAL_WS_RETRY_BACKOFF_SECONDS = 1.0
 WS_HEARTBEAT_INTERVAL_SECONDS = 2.0
 EPSILON = 1e-6
+NO_DATA_MARKER = "N/D"
+DEFAULT_PRICE_MIN = 20.0
+DEFAULT_PRICE_MAX = 200.0
+WS_DRIFT_MIN = -0.012
+WS_DRIFT_MAX = 0.015
+WS_VOLUME_INCREMENT_MIN = 1000
+WS_VOLUME_INCREMENT_MAX = 120000
 
 
 DEFAULT_UNIVERSE = {
@@ -219,8 +226,8 @@ class StockScreenerV4App:
         log.info("Python version: %s", sys.version.split()[0])
         try:
             log.info("User site-packages: %s", site.getusersitepackages())
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("Unable to resolve user site-packages: %s", exc)
         if websockets is None:
             log.error("websockets import FAILED: %r", WEBSOCKETS_IMPORT_ERROR)
         else:
@@ -311,7 +318,7 @@ class StockScreenerV4App:
 
     def fetch_snapshot(self, symbol: str) -> dict[str, float | int]:
         # Public CSV endpoint for lightweight snapshots.
-        query_symbol = symbol.lower().replace(".", "")
+        query_symbol = symbol.lower()
         url = (
             "https://stooq.com/q/l/?"
             + urllib.parse.urlencode({"s": query_symbol, "f": "sd2t2ohlcv", "h": "", "e": "csv"})
@@ -330,7 +337,7 @@ class StockScreenerV4App:
             raise ValueError(f"No data returned for {symbol}")
 
         row = rows[0]
-        if row.get("Close") in {None, "N/D"}:
+        if row.get("Close") in {None, NO_DATA_MARKER}:
             raise ValueError(f"Invalid quote for {symbol}: {row}")
 
         close = float(row.get("Close", "0") or 0)
@@ -391,7 +398,7 @@ class StockScreenerV4App:
     def score_vcp(self, st: SymbolState) -> float:
         if st.high <= 0 or st.low <= 0 or st.last <= 0:
             return 0.0
-        range_ratio = max(0.0, min(1.0, (st.high - st.low) / max(st.last, EPSILON)))
+        range_ratio = max(0.0, min(1.0, (st.high - st.low) / max(st.high, EPSILON)))
         contraction = 1.0 - min(range_ratio * 5, 1.0)
         close_position = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, EPSILON)))
         volume_quality = min(math.log10(max(st.volume, 1)) / VOLUME_LOG_SCALE, 1.0)
@@ -556,12 +563,12 @@ class StockScreenerV4App:
         picks = random.sample(symbols, k=min(4, len(symbols)))
         for sym in picks:
             st = self.get_or_create_state_locked(sym)
-            base = st.last if st.last > 0 else random.uniform(20, 200)
-            drift = random.uniform(-0.012, 0.015)
+            base = st.last if st.last > 0 else random.uniform(DEFAULT_PRICE_MIN, DEFAULT_PRICE_MAX)
+            drift = random.uniform(WS_DRIFT_MIN, WS_DRIFT_MAX)
             next_price = max(0.01, base * (1 + drift))
             hi = max(next_price, st.high if st.high > 0 else next_price)
             lo = min(next_price, st.low if st.low > 0 else next_price)
-            vol = max(1, st.volume + random.randint(1000, 120000))
+            vol = max(1, st.volume + random.randint(WS_VOLUME_INCREMENT_MIN, WS_VOLUME_INCREMENT_MAX))
             self.apply_snapshot(
                 sym,
                 {
