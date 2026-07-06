@@ -1,5 +1,5 @@
 """
-Stock Screener V4 (Standalone Download)
+Stock Screener V4
 
 Dependencies:
 - Python 3.10+
@@ -8,7 +8,7 @@ Dependencies:
 
 Install and run:
 1) pip install websockets
-2) python stock_screener_v4_download.py
+2) python stock_screener_v4.py
 3) Check "Realtime" to start WS
 4) Click "Refresh" to fetch data
 5) Click "Discover Now" to scan
@@ -125,7 +125,7 @@ class SymbolState:
 class StockScreenerV4App:
     def __init__(self) -> None:
         self.root = Tk()
-        self.root.title("Stock Screener V4 Download")
+        self.root.title("Stock Screener V4")
         self.root.geometry("1180x700")
 
         self.lock = threading.RLock()
@@ -337,7 +337,7 @@ class StockScreenerV4App:
             raise ValueError(f"No data returned for {symbol}")
 
         row = rows[0]
-        if row.get("Close") in {None, NO_DATA_MARKER}:
+        if row.get("Close") in {None, "", NO_DATA_MARKER}:
             raise ValueError(f"Invalid quote for {symbol}: {row}")
 
         close = float(row.get("Close", "0") or 0)

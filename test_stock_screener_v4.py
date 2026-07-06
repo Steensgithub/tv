@@ -237,6 +237,17 @@ class TestScoringValidation(unittest.TestCase):
             self.assertGreaterEqual(score, 0.0)
             self.assertTrue(math.isfinite(score))
 
+    def test_scores_return_zero_for_negative_prices(self):
+        st = mod.SymbolState(symbol="NEG", region="US")
+        st.last = -10.0
+        st.open = -5.0
+        st.high = -1.0
+        st.low = -20.0
+        st.volume = 0
+        self.assertEqual(self.app.score_vcp(st), 0.0)
+        self.assertEqual(self.app.score_gap_go(st), 0.0)
+        self.assertEqual(self.app.score_rs_pullback(st), 0.0)
+
 
 # ---------------------------------------------------------------------------
 # 3. apply_snapshot – state management + guaranteed UI refresh
