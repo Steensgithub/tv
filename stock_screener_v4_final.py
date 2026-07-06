@@ -2,7 +2,7 @@
 """
 Stock Screener V4 (standalone)
 
-Requirements: Python 3.9+, websockets
+Requirements: Python 3.9+, tkinter, websockets
 Install: pip install websockets
 Run: python stock_screener_v4_final.py
 """
@@ -43,7 +43,22 @@ logging.basicConfig(
 )
 log = logging.getLogger("stock_screener_v4")
 
-VALID_SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,16}$")
+VALID_SYMBOL = re.compile(r"^[A-Z0-9.-]{1,16}$")
+
+UI_QUEUE_MAX = 5000
+UI_ERROR_TRUNCATE = 36
+
+SCORE_PCT_WEIGHT = 0.7
+SCORE_VOL_WEIGHT = 0.3
+SCORE_VOL_NORMALIZER = 1_000_000
+SCORE_VOL_CAP = 5
+
+STOOQ_FIELDS = "sd2t2ohlcv"  # s=symbol d2=date t2=time o/h/l/c/v quote fields
+MAX_FETCH_BACKOFF_SECONDS = 16.0
+
+WS_PING_INTERVAL = 20
+WS_PING_TIMEOUT = 12
+WS_CLOSE_TIMEOUT = 5
 
 SEED_UNIVERSE = {
     "US": ["AAPL.US", "MSFT.US", "NVDA.US", "AMZN.US", "TSLA.US", "META.US"],
@@ -113,7 +128,10 @@ class SymbolState:
         self.low = low
         self.volume = volume
         self.pct_change = pct_change
-        self.score = (pct_change or 0.0) * 0.7 + min(volume / 1_000_000, 5) * 0.3
+        self.score = (
+            (pct_change or 0.0) * SCORE_PCT_WEIGHT
+            + min(volume / SCORE_VOL_NORMALIZER, SCORE_VOL_CAP) * SCORE_VOL_WEIGHT
+        )
         self.source = source
         self.status = "ok"
         self.last_error = ""
@@ -140,7 +158,7 @@ class StockScreenerV4:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.state: Dict[str, SymbolState] = {}
-        self.ui_queue: "queue.Queue[str]" = queue.Queue(maxsize=5000)
+        self.ui_queue: "queue.Queue[str]" = queue.Queue(maxsize=UI_QUEUE_MAX)
         self.stop_event = threading.Event()
         self.refresh_in_flight = threading.Event()
         self.ws_reconnect_count = 0
@@ -327,7 +345,7 @@ class StockScreenerV4:
         quote_symbol = symbol.lower()
         if "." not in quote_symbol and not quote_symbol.endswith("usdt"):
             quote_symbol = f"{quote_symbol}.us"
-        url = f"https://stooq.com/q/l/?s={urllib.parse.quote(quote_symbol)}&f=sd2t2ohlcv&h&e=csv"
+        url = f"https://stooq.com/q/l/?s={urllib.parse.quote(quote_symbol)}&f={STOOQ_FIELDS}&h&e=csv"
         log.info("Fetch quote for %s from %s", symbol, url)
         req = urllib.request.Request(url=url, headers={"User-Agent": "stock-screener-v4"})
         with urllib.request.urlopen(req, timeout=12) as resp:
@@ -358,7 +376,7 @@ class StockScreenerV4:
                 return self._fetch_quote_stooq(symbol)
             except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, ValueError) as exc:
                 last_error = exc
-                sleep_s = min(base_delay * (2 ** (attempt - 1)), 16.0)
+                sleep_s = min(base_delay * (2 ** (attempt - 1)), MAX_FETCH_BACKOFF_SECONDS)
                 log.warning("Fetch failed for %s attempt=%d err=%s backoff=%.1fs", symbol, attempt, exc, sleep_s)
                 time.sleep(sleep_s)
         raise RuntimeError(f"{symbol}: all retries failed ({last_error})")
@@ -413,7 +431,7 @@ class StockScreenerV4:
                 f"{st.score:.3f}",
                 st.source,
                 st.updated_at,
-                st.status if not st.last_error else f"{st.status}: {st.last_error[:36]}",
+                st.status if not st.last_error else f"{st.status}: {st.last_error[:UI_ERROR_TRUNCATE]}",
             )
             if st.region in rows_by_region:
                 rows_by_region[st.region].append(row)
@@ -446,7 +464,12 @@ class StockScreenerV4:
             log.info("Websocket connect attempt #%d url=%s", attempt, url)
 
             try:
-                async with websockets.connect(url, ping_interval=20, ping_timeout=12, close_timeout=5) as ws:
+                async with websockets.connect(
+                    url,
+                    ping_interval=WS_PING_INTERVAL,
+                    ping_timeout=WS_PING_TIMEOUT,
+                    close_timeout=WS_CLOSE_TIMEOUT,
+                ) as ws:
                     backoff = 1.0
                     self.ws_last_message_ts = time.time()
                     self.set_status("Realtime connected")
