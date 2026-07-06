@@ -30,7 +30,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from queue import Empty, Queue
 from tkinter import BOTH, LEFT, RIGHT, TOP, X, Y, BooleanVar, StringVar, Tk, Toplevel, messagebox, ttk
@@ -247,8 +247,9 @@ class StockScreenerV4App:
                 st = self.get_or_create_state_locked(sym)
                 if st.total_score >= 90:
                     selected.append((st.total_score, sym))
-            except Exception:
+            except Exception as exc:
                 failures += 1
+                log.exception("Discovery failed for %s: %s", sym, exc)
 
         selected.sort(reverse=True)
         with self.lock:
