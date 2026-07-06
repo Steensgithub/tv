@@ -47,6 +47,31 @@ LOG_FORMAT = "%(asctime)s | %(levelname)s | %(threadName)s | %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 log = logging.getLogger("stock_screener_v4")
 
+DISCOVERY_THRESHOLD = 90.0
+MAX_DISCOVERY_RESULTS = 30
+TOP_TICKERS_COUNT = 25
+MAX_FETCH_RETRY_BACKOFF_SECONDS = 6.0
+MAX_WS_RETRY_BACKOFF_SECONDS = 30.0
+VOLUME_LOG_SCALE = 7.0
+
+VCP_CONTRACTION_WEIGHT = 60.0
+VCP_CLOSE_POSITION_WEIGHT = 25.0
+VCP_VOLUME_WEIGHT = 15.0
+
+GAP_THRESHOLD = 0.08
+GAP_GO_GAP_WEIGHT = 70.0
+GAP_GO_BREAKOUT_WEIGHT = 20.0
+GAP_GO_VOLUME_WEIGHT = 10.0
+
+RS_PULLBACK_DEPTH_WEIGHT = 40.0
+RS_PULLBACK_HOLD_WEIGHT = 35.0
+RS_PULLBACK_RECOVERY_WEIGHT = 25.0
+
+STRONG_MULTI_SETUP_THRESHOLD = 130.0
+GAP_GO_CANDIDATE_THRESHOLD = 50.0
+VCP_STRUCTURE_THRESHOLD = 45.0
+RS_PULLBACK_THRESHOLD = 45.0
+
 
 DEFAULT_UNIVERSE = {
     "US": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"],
@@ -245,7 +270,7 @@ class StockScreenerV4App:
                 data = self.fetch_with_retry(sym)
                 self.apply_snapshot(sym, data, source="discover")
                 st = self.get_or_create_state_locked(sym)
-                if st.total_score >= 90:
+                if st.total_score >= DISCOVERY_THRESHOLD:
                     selected.append((st.total_score, sym))
             except Exception as exc:
                 failures += 1
@@ -253,7 +278,7 @@ class StockScreenerV4App:
 
         selected.sort(reverse=True)
         with self.lock:
-            self.discovery = [sym for _, sym in selected[:30]]
+            self.discovery = [sym for _, sym in selected[:MAX_DISCOVERY_RESULTS]]
 
         self._schedule_ui_refresh("discovery scan complete")
         self.set_status(f"Discovery complete. matches={len(self.discovery)} failed={failures}")
@@ -275,7 +300,7 @@ class StockScreenerV4App:
                 log.warning("Fetch attempt failed for %s: %s", symbol, exc)
                 if attempt < max_attempts:
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 6.0)
+                    backoff = min(backoff * 2, MAX_FETCH_RETRY_BACKOFF_SECONDS)
         raise RuntimeError(f"Failed to fetch {symbol}: {last_exc}")
 
     def fetch_snapshot(self, symbol: str) -> dict[str, float | int]:
@@ -334,13 +359,13 @@ class StockScreenerV4App:
             st.rs_pullback_score = self.score_rs_pullback(st)
             st.total_score = st.vcp_score + st.gap_go_score + st.rs_pullback_score
 
-            if st.total_score >= 130:
+            if st.total_score >= STRONG_MULTI_SETUP_THRESHOLD:
                 st.reason = "Strong multi-setup"
-            elif st.gap_go_score >= 50:
+            elif st.gap_go_score >= GAP_GO_CANDIDATE_THRESHOLD:
                 st.reason = "Gap&Go candidate"
-            elif st.vcp_score >= 45:
+            elif st.vcp_score >= VCP_STRUCTURE_THRESHOLD:
                 st.reason = "VCP structure"
-            elif st.rs_pullback_score >= 45:
+            elif st.rs_pullback_score >= RS_PULLBACK_THRESHOLD:
                 st.reason = "RS pullback"
             else:
                 st.reason = "Monitor"
@@ -363,16 +388,23 @@ class StockScreenerV4App:
         range_ratio = max(0.0, min(1.0, (st.high - st.low) / max(st.last, 1e-6)))
         contraction = 1.0 - min(range_ratio * 5, 1.0)
         close_position = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, 1e-6)))
-        volume_quality = min(math.log10(max(st.volume, 1)) / 7.0, 1.0)
-        return round(60 * contraction + 25 * close_position + 15 * volume_quality, 1)
+        volume_quality = min(math.log10(max(st.volume, 1)) / VOLUME_LOG_SCALE, 1.0)
+        return round(
+            VCP_CONTRACTION_WEIGHT * contraction
+            + VCP_CLOSE_POSITION_WEIGHT * close_position
+            + VCP_VOLUME_WEIGHT * volume_quality,
+            1,
+        )
 
     def score_gap_go(self, st: SymbolState) -> float:
         if st.open <= 0:
             return 0.0
         gap = (st.last - st.open) / st.open
-        gap_score = max(0.0, min(1.0, gap / 0.08)) * 70
-        breakout = max(0.0, min(1.0, (st.last - ((st.high + st.low) / 2)) / max(st.high, 1e-6))) * 20
-        vol_boost = min(math.log10(max(st.volume, 1)) / 7.0, 1.0) * 10
+        gap_score = max(0.0, min(1.0, gap / GAP_THRESHOLD)) * GAP_GO_GAP_WEIGHT
+        breakout = (
+            max(0.0, min(1.0, (st.last - ((st.high + st.low) / 2)) / max(st.high, 1e-6))) * GAP_GO_BREAKOUT_WEIGHT
+        )
+        vol_boost = min(math.log10(max(st.volume, 1)) / VOLUME_LOG_SCALE, 1.0) * GAP_GO_VOLUME_WEIGHT
         return round(gap_score + breakout + vol_boost, 1)
 
     def score_rs_pullback(self, st: SymbolState) -> float:
@@ -382,7 +414,12 @@ class StockScreenerV4App:
         pullback_depth = max(0.0, min(1.0, (mid - st.low) / max(st.high - st.low, 1e-6)))
         hold_above_mid = 1.0 if st.last >= mid else max(0.0, st.last / max(mid, 1e-6))
         recovery = max(0.0, min(1.0, (st.last - st.low) / max(st.high - st.low, 1e-6)))
-        return round(40 * pullback_depth + 35 * hold_above_mid + 25 * recovery, 1)
+        return round(
+            RS_PULLBACK_DEPTH_WEIGHT * pullback_depth
+            + RS_PULLBACK_HOLD_WEIGHT * hold_above_mid
+            + RS_PULLBACK_RECOVERY_WEIGHT * recovery,
+            1,
+        )
 
     def refresh_market_ui(self) -> None:
         with self.lock:
@@ -408,7 +445,7 @@ class StockScreenerV4App:
     def copy_tickers_dialog(self) -> None:
         with self.lock:
             ranked = sorted(self.state.values(), key=lambda s: s.total_score, reverse=True)
-            tickers = [s.symbol for s in ranked[:25]]
+            tickers = [s.symbol for s in ranked[:TOP_TICKERS_COUNT]]
 
         if not tickers:
             messagebox.showinfo("Copy Tickers", "No tickers available yet. Refresh first.")
@@ -502,7 +539,7 @@ class StockScreenerV4App:
                 log.warning("WS connection error: %s", exc)
                 self.set_status(f"Realtime reconnecting in {backoff:.1f}s")
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
+                backoff = min(backoff * 2, MAX_WS_RETRY_BACKOFF_SECONDS)
 
     def _handle_ws_message(self, msg: str) -> None:
         log.debug("WS message received: %s", msg[:120])
