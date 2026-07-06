@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import json
 import logging
 import math
 import queue
@@ -414,7 +415,10 @@ class StockScreenerV4:
                 st.updated_at,
                 st.status if not st.last_error else f"{st.status}: {st.last_error[:36]}",
             )
-            rows_by_region.setdefault(st.region, rows_by_region["US"]).append(row)
+            if st.region in rows_by_region:
+                rows_by_region[st.region].append(row)
+            else:
+                log.warning("Skipping UI row for unknown region '%s' symbol=%s", st.region, st.symbol)
 
         for region, rows in rows_by_region.items():
             tree = self.trees[region]
@@ -460,8 +464,6 @@ class StockScreenerV4:
                 backoff = min(backoff * 2, 30.0)
 
     def _handle_ws_message(self, raw: object) -> None:
-        import json
-
         payload = json.loads(raw)
         data = payload.get("data", payload)
         symbol = validate_symbol(str(data.get("s", "")))
