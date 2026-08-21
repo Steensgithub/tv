@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sun-structure-scanner"
 version = "0.1.0"
@@ -17,3 +21,17 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.setuptools]
+py-modules = [
+  "alerts",
+  "bar_aggregator",
+  "config",
+  "data_provider",
+  "main",
+  "models",
+  "polygon_provider",
+  "scanner",
+  "signal_engine",
+  "state_store",
+]

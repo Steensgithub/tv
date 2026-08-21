@@ -51,7 +51,7 @@ def test_bullish_structure_break_and_confirmation() -> None:
         make_bar("AAA", 3, 12, 12.5, 10.5, 11),
         make_bar("AAA", 4, 11, 11.5, 10.2, 10.8),
         make_bar("AAA", 5, 10.8, 13.5, 10.7, 13.2),
-        make_bar("AAA", 6, 13.1, 13.3, 12.0, 12.4),
+        make_bar("AAA", 6, 13.1, 13.3, 12.0, 12.8),
         make_bar("AAA", 7, 12.2, 13.8, 12.1, 13.6),
     ]
     outputs = feed(engine, bars)
@@ -141,7 +141,7 @@ def test_long_trade_exit_priority() -> None:
         make_bar("AAA", 3, 12, 12.4, 11, 11.2),
         make_bar("AAA", 4, 11.2, 11.4, 10.7, 10.8),
         make_bar("AAA", 5, 10.8, 13.5, 10.7, 13.4),
-        make_bar("AAA", 6, 13.2, 13.5, 12.0, 12.4),
+        make_bar("AAA", 6, 13.2, 13.5, 12.0, 12.8),
         make_bar("AAA", 7, 12.2, 13.9, 12.1, 13.7),
     ]
     feed(engine, bars)
@@ -162,7 +162,7 @@ def test_long_levels_calculation() -> None:
         make_bar("AAA", 3, 12, 12.4, 11, 11.2),
         make_bar("AAA", 4, 11.2, 11.4, 10.7, 10.8),
         make_bar("AAA", 5, 10.8, 13.5, 10.7, 13.4),
-        make_bar("AAA", 6, 13.2, 13.5, 12.0, 12.4),
+        make_bar("AAA", 6, 13.2, 13.5, 12.0, 12.8),
         make_bar("AAA", 7, 12.2, 13.9, 12.1, 13.7),
     ]
     outputs = feed(engine, bars)

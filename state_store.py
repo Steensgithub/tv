@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 
 from models import SymbolEngineState
 
@@ -45,7 +45,7 @@ class StateStore:
             VALUES(?, ?, ?)
             ON CONFLICT(symbol) DO UPDATE SET state_json=excluded.state_json, updated_at=excluded.updated_at
             """,
-            (symbol, json.dumps(state.to_dict()), datetime.utcnow().isoformat()),
+            (symbol, json.dumps(state.to_dict()), datetime.now(tz=UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -69,7 +69,7 @@ class StateStore:
                     timeframe,
                     signal_type,
                     bar_timestamp.isoformat(),
-                    datetime.utcnow().isoformat(),
+                    datetime.now(tz=UTC).isoformat(),
                 ),
             )
             self._conn.commit()
