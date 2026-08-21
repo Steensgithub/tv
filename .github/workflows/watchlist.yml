@@ -1,0 +1,38 @@
+name: Daily Sector Rotation Watchlist
+
+on:
+  schedule:
+    # Runs at 14:30 UTC (10:30 AM ET) on every weekday — shortly after US market open
+    - cron: '30 14 * * 1-5'
+  workflow_dispatch:  # allow manual trigger from the Actions tab
+
+permissions:
+  contents: write  # needed to commit the output CSV back to the repo
+
+jobs:
+  update-watchlist:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run watchlist generator
+        run: python watchlist.py
+
+      - name: Commit and push updated watchlist
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add watchlist_*.csv
+          git diff --cached --quiet && echo "No changes to commit." || \
+            git commit -m "chore: update sector rotation watchlist $(date -u +%Y-%m-%d)"
+          git push
