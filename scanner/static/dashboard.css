@@ -1,0 +1,32 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0d1117; color: #c9d1d9; font-size: 14px; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #161b22; border-bottom: 1px solid #30363d; }
+header h1 { font-size: 18px; flex: 1; }
+#clock { font-size: 12px; color: #8b949e; }
+.badge { padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.badge-unknown { background: #30363d; color: #8b949e; }
+.badge-running { background: #1f6feb; color: #fff; }
+.badge-waiting { background: #238636; color: #fff; }
+.badge-stale { background: #9e6a03; color: #fff; }
+.badge-provider_error { background: #da3633; color: #fff; }
+.badge-stopped { background: #30363d; color: #8b949e; }
+.status-bar { display: flex; gap: 24px; padding: 10px 20px; background: #161b22; border-bottom: 1px solid #30363d; flex-wrap: wrap; }
+.stat label { display: block; font-size: 11px; color: #8b949e; }
+.stat span { font-size: 15px; font-weight: 600; }
+.filters { padding: 10px 20px; display: flex; gap: 10px; align-items: center; }
+.filters input, .filters select { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; }
+.filters button { background: #238636; color: #fff; border: none; padding: 5px 14px; border-radius: 4px; cursor: pointer; }
+section { padding: 16px 20px; }
+h2 { font-size: 15px; margin-bottom: 10px; color: #e6edf3; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th { background: #161b22; color: #8b949e; text-align: left; padding: 6px 8px; position: sticky; top: 0; }
+tbody tr { border-bottom: 1px solid #21262d; cursor: pointer; }
+tbody tr:hover { background: #161b22; }
+td { padding: 5px 8px; }
+.htf-bullish { color: #3fb950; font-weight: 600; }
+.htf-not { color: #f85149; }
+.confirmed { color: #3fb950; }
+.unconfirmed { color: #f85149; }
+.detail-panel { background: #161b22; border: 1px solid #30363d; border-radius: 6px; }
+pre { background: #0d1117; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; max-height: 400px; }
