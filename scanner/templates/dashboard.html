@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TV Scanner Dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css"/>
+</head>
+<body>
+  <header>
+    <h1>📈 TV Scanner Dashboard</h1>
+    <div id="scanner-state" class="badge badge-unknown">UNKNOWN</div>
+    <span id="clock"></span>
+  </header>
+
+  <!-- Status bar -->
+  <section class="status-bar" id="status-section">
+    <div class="stat"><label>Symbols Scanned</label><span id="st-symbols">–</span></div>
+    <div class="stat"><label>New Signals</label><span id="st-signals">–</span></div>
+    <div class="stat"><label>Data Errors</label><span id="st-errors">–</span></div>
+    <div class="stat"><label>Latency</label><span id="st-latency">–</span></div>
+    <div class="stat"><label>Last Scan</label><span id="st-last">–</span></div>
+    <div class="stat"><label>Heartbeat</label><span id="st-heartbeat">–</span></div>
+  </section>
+
+  <!-- Filters -->
+  <section class="filters">
+    <input id="filter-symbol" type="text" placeholder="Symbol filter…"/>
+    <select id="filter-tf">
+      <option value="">All TFs</option>
+      <option value="1H">1H</option>
+      <option value="4H">4H</option>
+      <option value="1D">1D</option>
+    </select>
+    <label><input type="checkbox" id="filter-confirmed"/> Confirmed only</label>
+    <button onclick="loadSignals()">Refresh</button>
+  </section>
+
+  <!-- Signals table -->
+  <section>
+    <h2>LONG Signals</h2>
+    <div class="table-scroll">
+      <table id="signals-table">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Time (NY)</th><th>TF</th><th>HTF</th>
+            <th>Close</th><th>HTF Regime</th><th>OB Bottom</th><th>OB Top</th>
+            <th>RelVol%</th><th>MA Dist%</th><th>ATR</th><th>Stop</th>
+            <th>TP1</th><th>TP2</th><th>Provider</th><th>Confirmed</th>
+          </tr>
+        </thead>
+        <tbody id="signals-body">
+          <tr><td colspan="16" style="text-align:center">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Detail panel -->
+  <section id="detail-panel" class="detail-panel" style="display:none">
+    <h3>Signal Detail</h3>
+    <pre id="detail-json"></pre>
+  </section>
+
+  <!-- Config panel -->
+  <section>
+    <h2>Configuration <small>(read-only)</small></h2>
+    <pre id="config-json">Loading…</pre>
+  </section>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

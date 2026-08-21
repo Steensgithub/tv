@@ -1,0 +1,96 @@
+# Default scanner configuration
+# All values can be overridden via environment variables prefixed with TV_
+
+scanner:
+  # Signal timeframe: 1H, 4H, 1D
+  signal_timeframe: "4H"
+  # Higher timeframe: 4H, 1D, 1W
+  htf_timeframe: "1D"
+
+  # Universe of symbols to scan
+  symbols:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - META
+    - GOOGL
+    - TSLA
+    - AMD
+    - NFLX
+    - INTC
+
+  # Scan interval in seconds (how often to check for new completed candles)
+  scan_interval_seconds: 60
+
+  # Number of warmup bars to fetch for indicator calculation
+  warmup_bars: 300
+
+session:
+  timezone: "America/New_York"
+  market_open: "09:30"
+  market_close: "16:00"
+  exclude_extended_hours: true
+
+indicators:
+  ma_lengths: [8, 21, 34, 50, 200]
+  atr_length: 14
+  volume_baseline_length: 20
+
+pivot:
+  left_bars: 5
+  right_bars: 5
+
+filters:
+  min_ma_distance_pct: 0.25
+  min_entry_volume_ratio: 100.0
+  max_entry_extension_atr: 3.0
+  min_htf_ma_bandwidth_atr: 0.25
+  order_block_filter: true
+  order_block_use_body: true
+  relative_volume_filter: true
+  cvd_alignment_filter: true
+  # "or" requires close > ma4 OR close > ma5; "and" requires both
+  price_side_mode: "or"
+
+order_blocks:
+  max_bullish_zones: 10
+  max_combined_zones: 10
+  remove_on_first_touch: true
+  remove_mitigated: false
+
+signal:
+  # alert_mode: "new_signal" | "per_candle" | "all"
+  alert_mode: "new_signal"
+  min_cooldown_seconds: 0
+  dry_run: true
+
+data_provider:
+  # "yfinance" or "alpaca"
+  name: "yfinance"
+  # split_adjusted and dividend_adjusted apply to providers that support it
+  split_adjusted: true
+  dividend_adjusted: true
+  cache_ttl_seconds: 300
+  request_timeout_seconds: 30
+  max_retries: 3
+  backoff_factor: 2.0
+
+alerts:
+  console: true
+  webhook:
+    enabled: false
+    url: ""
+    timeout_seconds: 10
+
+dashboard:
+  host: "127.0.0.1"
+  port: 8000
+  cors_origins: ["*"]
+
+database:
+  path: "scanner_signals.db"
+
+logging:
+  level: "INFO"
+  format: "json"
