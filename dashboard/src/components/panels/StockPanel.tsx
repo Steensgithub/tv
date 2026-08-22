@@ -306,7 +306,7 @@ export function StockPanel() {
           ))}
           <p className="text-[10px] text-slate-600 text-center pt-1">
             Links open SEC EDGAR. Full filing data available via{' '}
-            <a href="https://efts.sec.gov/LATEST/search-index?q=%22{stats.symbol}%22" className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer">EDGAR full-text search</a>.
+            <a href={`https://efts.sec.gov/LATEST/search-index?q=%22${stats.symbol}%22`} className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer">EDGAR full-text search</a>.
           </p>
         </div>
       )}

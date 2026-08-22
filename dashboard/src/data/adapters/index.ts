@@ -15,12 +15,17 @@
  *  - Scanner         → Polygon.io WebSocket / REST for pre/post-market data
  */
 
-import type { Sector, ThemeETF } from '@/types';
-import type { BreadthPoint } from '@/types';
-import type { COTRow } from '@/types';
-import type { HighLowEntry } from '@/types';
-import type { StockDetail } from '@/types';
-import type { ScannerRow, ScannerMode, ScannerFilter } from '@/types';
+import type {
+  Sector,
+  ThemeETF,
+  BreadthPoint,
+  COTRow,
+  HighLowEntry,
+  StockDetail,
+  ScannerRow,
+  ScannerMode,
+  ScannerFilter,
+} from '@/types';
 
 export interface SectorsAdapter {
   getSectors(): Promise<Sector[]>;

@@ -31,6 +31,7 @@ export function changeBg(v: number) {
   if (v > 1.5) return 'bg-emerald-500';
   if (v > 0.5) return 'bg-emerald-700';
   if (v > 0)   return 'bg-emerald-900';
+  if (v === 0)  return 'bg-slate-700';
   if (v < -1.5) return 'bg-red-500';
   if (v < -0.5) return 'bg-red-700';
   return 'bg-red-900';
