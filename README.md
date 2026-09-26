@@ -14,7 +14,7 @@ Next scan—
 
 System check—
 
-Example layout only. These tickers and levels are made up. The first real scan lands here Monday before the US open, and this page updates by itself.
+Example layout only. These tickers and levels are made up. The first real pre-market scan lands here before the US open on trading days, and this page updates automatically on that schedule.
 
 ## Market context
 
@@ -34,7 +34,7 @@ Daily ATR% multiple from the 50-day average is 11 or higher (A1 from 11, A2 from
 
 ## My picks
 
-Paste the tickers from your own scan for a trading day. Tickers the scans also found get highlighted, and the weekly comparison uses this list.
+Paste the tickers from your own scan for a trading day. Tickers that also appear in the Opening Bell ranked picks for that day get highlighted, and the weekly comparison uses this list.
 
 Trading day (New York)
 
