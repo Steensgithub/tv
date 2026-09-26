@@ -14,7 +14,7 @@ Next scan—
 
 System check—
 
-Example layout only. These tickers and levels are made up. In production use, replace this placeholder block with the real pre-market scan output before the US open on trading days.
+Example layout only. These tickers and levels are made up. In production use, fill the **Scan**, **Market context**, **Trending sectors**, and **Ranked picks** sections with real pre-market output before the US open on trading days.
 
 ## Market context
 
@@ -34,7 +34,7 @@ Daily ATR% multiple from the 50-day average is 11 or higher (A1 from 11, A2 from
 
 ## My picks
 
-Paste the tickers from your own scan for a trading day into the **Tickers** field in this section. Tickers that also appear in the Opening Bell ranked picks for that day are marked as overlaps for the weekly comparison.
+Paste the tickers from your own scan for a trading day into the **Tickers** field in this section. For overlap checks, normalize symbols to uppercase and deduplicate repeated symbols before comparing with that day's Opening Bell ranked picks.
 
 Trading day (New York)
 
@@ -42,6 +42,6 @@ Tickers
 
 ## Weekly comparison
 
-Weekly comparison should show, per trading day, how many of your submitted tickers overlapped with the Opening Bell ranked picks and which symbols matched.
+Weekly comparison should show, per trading day, the count of unique overlapping symbols and the list of overlapping symbols after uppercase normalization and duplicate removal.
 
 Levels are planning references from delayed public data, not live quotes. Confirm price and volume on your Saxo 15-minute chart before placing any order, and size positions from the stop distance. This is research to support your own decisions, not financial advice.
